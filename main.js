@@ -1,18 +1,20 @@
 const $ = document.querySelector.bind(document)
 const $$ = document.querySelectorAll.bind(document)
-const PLAYER_STORAGE_KEY = 'F8_PLAYER'
-const heading = $('header h2')
-const cdThumb = $('.cd-thumb')
-const audio = $('#audio')
+const playlist = $('.playlist')
 const cd = $('.cd')
-const playBtn = $('.btn-toggle-play')
+const cdThumb = $('.cd-thumb')
+const heading = $('header h2')
+const audio = $('#audio')
 const player = $('.player')
+const playBtn = $('.btn-toggle-play')
 const progress = $('#progress')
 const nextBtn = $('.btn-next')
 const prevBtn = $('.btn-prev')
 const randomBtn = $('.btn-random')
 const repeatBtn = $('.btn-repeat')
-const playlist = $('.playlist')
+const PLAYER_STORAGE_KEY = 'F8_PLAYER'
+var randomCurrent = []
+
 
 
 const app = {
@@ -20,7 +22,11 @@ const app = {
     isPlaying: false,
     isRandom: false,
     isRepeat: false,
-    config: JSON.parse(localStorage.getItem(PLAYER_STORAGE_KEY)) || {},
+    config: JSON.parse(localStorage.getItem(PLAYER_STORAGE_KEY))  || {},
+    setConfig: function(key,value){
+        this.config[key] = value
+        localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(this.config))
+    },
     songs: [{
         name: 'Better Days',
         singer: 'NEIKED,  Mae Muller,  Polo G',
@@ -75,13 +81,17 @@ const app = {
         path: './assets/music/Smokin Out The Window-8.mp3',
         image: './assets/img/smokin.jpg'
     }],
-    setConfig: function(key, value){
-        this.config[key] = value
-        localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(this.config))
+    defineProperties: function() {
+        Object.defineProperty(this, 'currentSong',{
+            get: function(){
+                return this.songs[this.currentIndex]
+            }
+        })
     },
-    render: function(){
-        const htmls = this.songs.map( (song, index) => {
-            return `<div class="song ${index === this.currentIndex? 'active' : ''}" data-index = "${index}">
+    renderSong:function () {
+        const _this = this
+        const html = this.songs.map(function(song,index) {
+            return `<div class="song ${index === _this.currentIndex?'active':''}" data-index="${index}">
             <div class="thumb" style="background-image: url(${song.image})" >
             </div>
             <div class="body">
@@ -92,38 +102,28 @@ const app = {
             <i class="fas fa-ellipsis-h"></i>
             </div>
         </div>`
-    })
-    playlist.innerHTML = htmls.join('')
-    },
-    defineProperties: function(){
-        Object.defineProperty(this, 'currentSong',{
-            get: function(){
-                return this.songs[this.currentIndex]
-            }
         })
+        playlist.innerHTML = html.join('')
     },
-    handleEvents: function(){
-        const cdWidth = cd.offsetWidth
+    handleEvents: function() {
         const _this = this
-        
-        //xu ly quay thumb / dung
-        const cdThumbAnimate = cdThumb.animate([
-            {transform: 'rotate(360deg)'}
-        ],{
-            duration: 10000, //10seconds
-            iteration: Infinity,
-        })
-
-        cdThumbAnimate.pause()
-        // xu ly zoom in zoom out cd
+        cdWidth = cd.offsetWidth
         document.onscroll = function(){
-            const scrollTop = window.scrollY || document.documentElement.scrollTop
+            const scrollTop = document.documentElement.scrollTop
             const newCdWidth = cdWidth - scrollTop
-
-            cd.style.width = newCdWidth > 0?newCdWidth + 'px':0;
+            cd.style.width = newCdWidth > 0 ? newCdWidth + 'px' : 0
             cd.style.opacity = newCdWidth / cdWidth
         }
-        // xu ly play
+
+        const cdThumbAnimate = cdThumb.animate({
+            transform: 'rotate(360deg)'
+        }, {
+            duration: 10000,
+            iterations: Infinity
+        });
+
+        cdThumbAnimate.pause()
+
         playBtn.onclick = function(){
             if(_this.isPlaying){
                 audio.pause()
@@ -131,34 +131,51 @@ const app = {
                 audio.play()
             }
         }
-        // khi song duoc play
+        
         audio.onplay = function(){
-            _this.isPlaying = true
             player.classList.add('playing')
+            _this.isPlaying = true
             cdThumbAnimate.play()
         }
-        // khi song pause
+
         audio.onpause = function(){
-            _this.isPlaying = false
             player.classList.remove('playing')
+            _this.isPlaying = false
             cdThumbAnimate.pause()
         }
-        //khi tien do bai hat thay doi
-        audio.ontimeupdate = function(){
-            var progressPercent = audio.currentTime / audio.duration * 100
-            // xu ly progressPercent = NaN
-            !progressPercent?progressPercent = 0:progress.value = progressPercent
-        }
-        //su ly khi tua nhac
-        progress.oninput = function(e){
-            audio.pause()
-            const seekTime = e.target.value*(audio.duration/100)
-            audio.currentTime = seekTime
-            progress.onchange = function(){
+
+        audio.onended = function() {
+            if(_this.isRepeat){
                 audio.play()
+            }else if(_this.isRandom){
+                _this.randomSong()
+            }else{
+                _this.nextSong()
+            }
+            audio.play()
+        }
+
+        audio.addEventListener("timeupdate", timeUpdate);
+
+        function timeUpdate(e) {
+            if (audio.duration){
+                progress.value = (audio.currentTime / audio.duration) * 100
             }
         }
-        // xu li next 
+        function seekStart() {
+            audio.removeEventListener("timeupdate", timeUpdate);
+          };
+
+        function seekEnd() {
+            audio.addEventListener("timeupdate", timeUpdate);
+            audio.currentTime = progress.value * (audio.duration / 100)
+        }
+
+        progress.onmousedown = seekStart
+        progress.ontouchstart = seekStart
+        progress.onmouseup = seekEnd
+        progress.ontouchend = seekEnd
+
         nextBtn.onclick = function(){
             if(_this.isRandom){
                 _this.randomSong()
@@ -166,81 +183,54 @@ const app = {
                 _this.nextSong()
             }
             audio.play()
-            _this.render()
+            _this.renderSong()
             _this.scrollToActiveSong()
         }
-        // xu ly prev
+
         prevBtn.onclick = function(){
             if(_this.isRandom){
                 _this.randomSong()
             }else{
-            _this.prevSong()
+                _this.prevSong()
             }
             audio.play()
-            _this.render()
+            _this.renderSong()
             _this.scrollToActiveSong()
         }
-        // xu ly random
-        randomBtn.onclick = function(e){
+
+        randomBtn.onclick = function() {
+            _this.isRepeat = false
             _this.isRandom = !_this.isRandom
-            _this.setConfig('isRandom', _this.isRandom)
-            randomBtn.classList.toggle('active',_this.isRandom)
+            _this.setConfig('isRepeat',_this.isRepeat)
+            _this.setConfig('isRandom',_this.isRandom)
+            randomBtn.classList.toggle('active', _this.isRandom)
+            repeatBtn.classList.remove('active')
         }
-        //xu ly loop
-        repeatBtn.onclick = function(){
+
+        repeatBtn.onclick = function() {
+            _this.isRandom = false
             _this.isRepeat = !_this.isRepeat
-            _this.setConfig('isRepeat', _this.isRepeat)
-            repeatBtn.classList.toggle('active',_this.isRepeat)
+            _this.setConfig('isRandom',_this.isRandom)
+            _this.setConfig('isRepeat',_this.isRepeat)
+            repeatBtn.classList.toggle('active', _this.isRepeat)
+            randomBtn.classList.remove('active')
         }
-        //xu ly next song khi audio ended
-        audio.onended = function(){
-            if(_this.isRepeat){
-                audio.play()
-            }else{
-                nextBtn.onclick()
-            }
-        }
-        // lang nghe hanh vi click vao playlist
-        playlist.onclick = function(e){
+        
+        playlist.onclick = function(e) {
             const songNode = e.target.closest('.song:not(.active)')
-            // xu ly khi click vao song
             if(songNode || e.target.closest('.option')){
-                //xu ly khi click vao song 
-                if (songNode){
-                    _this.currentIndex = Number(songNode.dataset.index)
+                if(songNode){
+                    _this.currentIndex = Number(songNode.getAttribute('data-index'))
                     _this.loadCurrentSong()
-                    _this.render()
+                    _this.renderSong()
                     audio.play()
                 }
-                //xu ly khi click vao nut option
                 if(e.target.closest('.option')){
-
+                    console.log("option")
                 }
             }
         }
-    },
-    loadCurrentSong: function(){
-        heading.textContent = this.currentSong.name
-        cdThumb.style.backgroundImage = `url('${this.currentSong.image}')`
-        audio.src = this.currentSong.path
-    },
-    loadConfig: function(){
-        this.isRandom = this.config.isRandom
-        this.isRepeat = this.config.isRepeat
-    },
-    nextSong: function(){
-        this.currentIndex++
-        if(this.currentIndex >= (this.songs.length)){
-            this.currentIndex = 0
-        }
-        this.loadCurrentSong()
-    },
-    prevSong: function(){
-        this.currentIndex--
-        if(this.currentIndex < 0){
-            this.currentIndex = (this.songs.length-1)
-        }
-        this.loadCurrentSong()
+
     },
     scrollToActiveSong: function(){
         if(this.currentIndex <= 4){
@@ -259,29 +249,54 @@ const app = {
             }, 100);
         }
     },
-    randomSong: function(){
-        let newIndex
-        do{
-            newIndex = Math.floor(Math.random() * this.songs.length)
-        }while(newIndex === this.currentIndex)
+    nextSong: function() {
+        this.currentIndex ++ 
+        if(this.currentIndex >= this.songs.length){
+            this.currentIndex = 0
+        }
+        this.loadCurrentSong()
+    },
+    prevSong: function() {
+        this.currentIndex --
+        if(this.currentIndex < 0){
+            this.currentIndex = this.songs.length - 1
+        }
+        this.loadCurrentSong()
+    },
+    randomSong: function () {
+        function randomIndex(){
+            return  Math.floor(Math.random() * app.songs.length)
+        }
+        let newIndex = randomIndex()
+        if(randomCurrent.length === this.songs.length){
+            randomCurrent = [newIndex]
+        }else{
+            while(randomCurrent.includes(newIndex)){
+                newIndex = randomIndex()
+            }
+            randomCurrent.push(newIndex)
+        }
         this.currentIndex = newIndex
         this.loadCurrentSong()
     },
-    start: function() {
-        //gan cau hinh tu localStorage
+    loadConfig: function(){
+        this.isRandom = this.config.isRandom
+        this.isRepeat = this.config.isRepeat
+    },
+    loadCurrentSong: function() {
+        heading.textContent = this.currentSong.name
+        cdThumb.style.backgroundImage = `url(${this.currentSong.image})`
+        audio.src = `${this.currentSong.path}`
+    },
+    start: function(){
         this.loadConfig()
-        // Định nghĩa các thuộc tính cho Object
-        this.defineProperties()
-
-        // Lắng nghe các sự kiện (DOM Events)
         this.handleEvents()
-        // Tải thông tin bài hát đầu tiên khi chạy ứng dụng
+        this.defineProperties()
         this.loadCurrentSong()
-        // Play list
-        this.render()
-        // hien thi trang thai ban dau cua button repeat va random
-        repeatBtn.classList.toggle('active',this.isRepeat)
+        this.renderSong()
+        
         randomBtn.classList.toggle('active',this.isRandom)
+        repeatBtn.classList.toggle('active',this.isRepeat)
     }
 }
 
